@@ -183,6 +183,7 @@ static int hw_device_setup_for_encode(Encoder *e, AVCodecContext *enc_ctx,
 
 int enc_open(void *opaque, const AVFrame *frame)
 {
+            av_log(opaque, AV_LOG_INFO, "called enc_open\n");
     OutputStream *ost = opaque;
     InputStream *ist = ost->ist;
     Encoder              *e = ost->enc;
@@ -195,14 +196,23 @@ int enc_open(void *opaque, const AVFrame *frame)
     int frame_samples = 0;
     int ret;
 
+<<<<<<< HEAD
     if (ep->opened)
+=======
+            av_log(ost, AV_LOG_INFO, "check open\n");
+    if (e->opened)
+>>>>>>> 3c1237aba1 (split on frame)
         return 0;
 
+            av_log(ost, AV_LOG_INFO, "opened\n");
     // frame is always non-NULL for audio and video
     av_assert0(frame || (enc->type != AVMEDIA_TYPE_VIDEO && enc->type != AVMEDIA_TYPE_AUDIO));
 
+            av_log(ost, AV_LOG_INFO, "asserted\n");
     if (frame) {
+            av_log(ost, AV_LOG_INFO, "frame\n");
         av_assert0(frame->opaque_ref);
+            av_log(ost, AV_LOG_INFO, "asserted\n");
         fd = (FrameData*)frame->opaque_ref->data;
 
         for (int i = 0; i < frame->nb_side_data; i++) {
@@ -211,6 +221,7 @@ int enc_open(void *opaque, const AVFrame *frame)
             if (!(desc->props & AV_SIDE_DATA_PROP_GLOBAL))
                 continue;
 
+            av_log(ost, AV_LOG_INFO, "for loop %d %d\n", i, frame->nb_side_data);
             ret = av_frame_side_data_clone(&enc_ctx->decoded_side_data,
                                            &enc_ctx->nb_decoded_side_data,
                                            frame->side_data[i],
@@ -220,6 +231,14 @@ int enc_open(void *opaque, const AVFrame *frame)
         }
     }
 
+<<<<<<< HEAD
+=======
+            av_log(ost, AV_LOG_INFO, "set enc id\n");
+    ret = set_encoder_id(of, ost);
+    if (ret < 0)
+        return ret;
+
+>>>>>>> 3c1237aba1 (split on frame)
     if (ist)
         dec = ist->decoder;
 
@@ -231,6 +250,7 @@ int enc_open(void *opaque, const AVFrame *frame)
 
     switch (enc_ctx->codec_type) {
     case AVMEDIA_TYPE_AUDIO:
+            av_log(ost, AV_LOG_INFO, "assert\n");
         av_assert0(frame->format != AV_SAMPLE_FMT_NONE &&
                    frame->sample_rate > 0 &&
                    frame->ch_layout.nb_channels > 0);
@@ -327,14 +347,24 @@ int enc_open(void *opaque, const AVFrame *frame)
 
     enc_ctx->flags |= AV_CODEC_FLAG_FRAME_DURATION;
 
+<<<<<<< HEAD
     ret = hw_device_setup_for_encode(e, enc_ctx, frame ? frame->hw_frames_ctx : NULL);
+=======
+            av_log(ost, AV_LOG_INFO, "hw\n");
+    ret = hw_device_setup_for_encode(ost, frame ? frame->hw_frames_ctx : NULL);
+>>>>>>> 3c1237aba1 (split on frame)
     if (ret < 0) {
         av_log(e, AV_LOG_ERROR,
                "Encoding hardware device setup failed: %s\n", av_err2str(ret));
         return ret;
     }
 
+<<<<<<< HEAD
     if ((ret = avcodec_open2(enc_ctx, enc, NULL)) < 0) {
+=======
+            av_log(ost, AV_LOG_INFO, "open avcodec\n");
+    if ((ret = avcodec_open2(ost->enc_ctx, enc, NULL)) < 0) {
+>>>>>>> 3c1237aba1 (split on frame)
         if (ret != AVERROR_EXPERIMENTAL)
             av_log(e, AV_LOG_ERROR, "Error while opening encoder - maybe "
                    "incorrect parameters such as bit_rate, rate, width or height.\n");
@@ -351,12 +381,180 @@ int enc_open(void *opaque, const AVFrame *frame)
         av_log(e, AV_LOG_WARNING, "The bitrate parameter is set too low."
                                     " It takes bits/s as argument, not kbits/s\n");
 
+<<<<<<< HEAD
     ret = of_stream_init(of, ost, enc_ctx);
+=======
+            av_log(ost, AV_LOG_INFO, "params\n");
+    ret = avcodec_parameters_from_context(ost->par_in, ost->enc_ctx);
+    if (ret < 0) {
+        av_log(ost, AV_LOG_FATAL,
+               "Error initializing the output stream codec context.\n");
+        return ret;
+    }
+
+    // copy timebase while removing common factors
+    if (ost->st->time_base.num <= 0 || ost->st->time_base.den <= 0)
+        ost->st->time_base = av_add_q(ost->enc_ctx->time_base, (AVRational){0, 1});
+
+            av_log(ost, AV_LOG_INFO, "stream init\n");
+    ret = of_stream_init(of, ost);
+            av_log(ost, AV_LOG_INFO, "stream init done\n");
+>>>>>>> 3c1237aba1 (split on frame)
     if (ret < 0)
         return ret;
 
     return frame_samples;
 }
+
+
+static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
+{
+    
+    const AVCodec *encoder;
+
+
+    AVCodecContext *enc_ctx;// = ost->enc_ctx;
+    const AVCodec      *enc;
+    FrameData *fd;
+    int frame_samples = 0;
+    int ret;
+
+       
+        encoder = avcodec_find_encoder(id);
+
+    if (!encoder) {
+        av_log(NULL, AV_LOG_FATAL, "Necessary encoder not found\n");
+        return AVERROR_INVALIDDATA;
+    }
+    enc_ctx = avcodec_alloc_context3(encoder);
+    if (!enc_ctx) {
+        av_log(NULL, AV_LOG_FATAL, "Failed to allocate the encoder context\n");
+        return AVERROR(ENOMEM);
+    }
+    enc = enc_ctx->codec;
+
+
+    // frame is always non-NULL for audio and video
+    av_assert0(frame || (enc->type != AVMEDIA_TYPE_VIDEO && enc->type != AVMEDIA_TYPE_AUDIO));
+
+    /*if (frame) {
+        av_assert0(frame->opaque_ref);
+        fd = (FrameData*)frame->opaque_ref->data;
+
+        for (int i = 0; i < frame->nb_side_data; i++) {
+            const AVSideDataDescriptor *desc = av_frame_side_data_desc(frame->side_data[i]->type);
+
+            if (!(desc->props & AV_SIDE_DATA_PROP_GLOBAL))
+                continue;
+
+            av_log(ost, AV_LOG_INFO, "for loop %d %d\n", i, frame->nb_side_data);
+            ret = av_frame_side_data_clone(&enc_ctx->decoded_side_data,
+                                           &enc_ctx->nb_decoded_side_data,
+                                           frame->side_data[i],
+                                           AV_FRAME_SIDE_DATA_FLAG_UNIQUE);
+            if (ret < 0)
+                return ret;
+        }
+    }*/
+
+
+
+    // the timebase is chosen by filtering code
+    if (ost->type == AVMEDIA_TYPE_AUDIO || ost->type == AVMEDIA_TYPE_VIDEO) {
+        enc_ctx->time_base      = frame->time_base;
+        enc_ctx->framerate      = fd->frame_rate_filter;
+        ost->st->avg_frame_rate = fd->frame_rate_filter;
+    }
+
+    switch (enc_ctx->codec_type) {
+    case AVMEDIA_TYPE_VIDEO: {
+        av_assert0(frame->format != AV_PIX_FMT_NONE &&
+                   frame->width > 0 &&
+                   frame->height > 0);
+        enc_ctx->width  = frame->width;
+        enc_ctx->height = frame->height;
+        enc_ctx->sample_aspect_ratio = ost->st->sample_aspect_ratio =
+            ost->frame_aspect_ratio.num ? // overridden by the -aspect cli option
+            av_mul_q(ost->frame_aspect_ratio, (AVRational){ enc_ctx->height, enc_ctx->width }) :
+            frame->sample_aspect_ratio;
+
+        enc_ctx->pix_fmt = frame->format;
+
+        if (ost->bits_per_raw_sample)
+            enc_ctx->bits_per_raw_sample = ost->bits_per_raw_sample;
+        else
+            enc_ctx->bits_per_raw_sample = FFMIN(fd->bits_per_raw_sample,
+                                                 av_pix_fmt_desc_get(enc_ctx->pix_fmt)->comp[0].depth);
+
+        enc_ctx->color_range            = frame->color_range;
+        enc_ctx->color_primaries        = frame->color_primaries;
+        enc_ctx->color_trc              = frame->color_trc;
+        enc_ctx->colorspace             = frame->colorspace;
+        enc_ctx->chroma_sample_location = frame->chroma_location;
+
+        if (enc_ctx->flags & (AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME) ||
+            (frame->flags & AV_FRAME_FLAG_INTERLACED)
+#if FFMPEG_OPT_TOP
+            || ost->top_field_first >= 0
+#endif
+            ) {
+            int top_field_first =
+#if FFMPEG_OPT_TOP
+                ost->top_field_first >= 0 ?
+                ost->top_field_first :
+#endif
+                !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
+
+            if (enc->id == AV_CODEC_ID_MJPEG)
+                enc_ctx->field_order = top_field_first ? AV_FIELD_TT : AV_FIELD_BB;
+            else
+                enc_ctx->field_order = top_field_first ? AV_FIELD_TB : AV_FIELD_BT;
+        } else
+            enc_ctx->field_order = AV_FIELD_PROGRESSIVE;
+
+        break;
+        }
+    default:
+        av_assert0(0);
+        break;
+    }
+
+    if (ost->bitexact)
+        enc_ctx->flags |= AV_CODEC_FLAG_BITEXACT;
+
+    if (enc->capabilities & AV_CODEC_CAP_ENCODER_REORDERED_OPAQUE)
+        enc_ctx->flags |= AV_CODEC_FLAG_COPY_OPAQUE;
+
+    enc_ctx->flags |= AV_CODEC_FLAG_FRAME_DURATION;
+
+
+    if ((ret = avcodec_open2(ost->enc_ctx, enc, NULL)) < 0) {
+        if (ret != AVERROR_EXPERIMENTAL)
+            av_log(ost, AV_LOG_ERROR, "Error while opening encoder - maybe "
+                   "incorrect parameters such as bit_rate, rate, width or height.\n");
+        return ret;
+    }
+
+    if (ost->enc_ctx->frame_size)
+        frame_samples = ost->enc_ctx->frame_size;
+
+    if (ost->enc_ctx->bit_rate && ost->enc_ctx->bit_rate < 1000 &&
+        ost->enc_ctx->codec_id != AV_CODEC_ID_CODEC2 /* don't complain about 700 bit/s modes */)
+        av_log(ost, AV_LOG_WARNING, "The bitrate parameter is set too low."
+                                    " It takes bits/s as argument, not kbits/s\n");
+
+            av_log(ost, AV_LOG_INFO, "params\n");
+    ret = avcodec_parameters_from_context(ost->par_in, ost->enc_ctx);
+    if (ret < 0) {
+        av_log(ost, AV_LOG_FATAL,
+               "Error initializing the output stream codec context.\n");
+        return ret;
+    }
+
+    ost->enc_ctx = enc_ctx;
+    return frame_samples;
+}
+
 
 static int check_recording_time(OutputStream *ost, int64_t ts, AVRational tb)
 {
@@ -853,8 +1051,9 @@ int encoder_thread(void *arg)
     Encoder        *e = ost->enc;
     EncoderPriv   *ep = ep_from_enc(e);
     EncoderThread et;
-    int ret = 0, input_status = 0;
+    int ret = 0, input_status = 0, started = 0;
     int name_set = 0;
+    int64_t last_pts_time = 0;
 
     ret = enc_thread_init(&et);
     if (ret < 0)
@@ -896,6 +1095,39 @@ int encoder_thread(void *arg)
             name_set = 1;
         }
 
+        if (ost->type == AVMEDIA_TYPE_VIDEO && et.frame->flags & AV_FRAME_FLAG_KEY)  {  
+            int64_t pts_time = (et.frame->pts) * av_q2d(et.frame->time_base);
+            int64_t pts_sync = (pts_time) % 60; // 60 seconds
+            av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %d kf %d \n", pts_sync, pts_time, et.frame->flags & AV_FRAME_FLAG_KEY);
+            if (pts_sync < 1 && started && last_pts_time < pts_time - 10) {
+                last_pts_time = pts_time;
+                
+            av_log(NULL, AV_LOG_INFO, "restarting: %d packet_time: %d\n", pts_sync, pts_time);
+
+                enum AVCodecID id = ost->enc_ctx->codec->id;
+                //ret = frame_encode(ost, NULL, et.pkt);
+                //if (ret < 0 && ret != AVERROR_EOF)
+                //    av_log(ost, AV_LOG_ERROR, "Error flushing encoder: %s\n",
+                //        av_err2str(ret));
+
+                
+                if (ost->enc_ctx)
+                    av_freep(&ost->enc_ctx->stats_in); // TODO: need check?
+                avcodec_free_context(&ost->enc_ctx);
+
+                //enc_free(&ost->enc);
+                av_log(ost, AV_LOG_INFO, "freed encoder!\n");
+                //ost->enc->opened = 0;
+                av_log(ost, AV_LOG_INFO, "enc open encoder\n");
+                ret = enc_open2(ost, et.frame, id);
+                    av_log(ost, AV_LOG_INFO, "opened encoder: %s\n",
+                        av_err2str(ret));
+            }
+        // if (pts_sync > 10)
+                started = 1;
+
+        }
+        
         ret = frame_encode(ost, et.frame, et.pkt);
 
         av_packet_unref(et.pkt);

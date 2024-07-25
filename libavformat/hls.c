@@ -1533,8 +1533,11 @@ static int read_data(void *opaque, uint8_t *buf, int buf_size)
     struct segment *seg;
 
 restart:
-    if (!v->needed)
+    if (!v->needed) {
+        av_log(v->parent, AV_LOG_INFO, "No longer receiving playlist %d ('%s')\n",
+                v->index, v->url);
         return AVERROR_EOF;
+    }
 
     if (!v->input || (c->http_persistent && v->input_read_done)) {
         int64_t reload_interval;
@@ -1555,8 +1558,11 @@ restart:
 
 reload:
         reload_count++;
-        if (reload_count > c->max_reload)
+        if (reload_count > c->max_reload) {
+            av_log(v->parent, AV_LOG_INFO, "Playlist max reloaded reached %d ('%s')\n",
+                   reload_count, v->url);
             return AVERROR_EOF;
+        }
         if (!v->finished &&
             av_gettime_relative() - v->last_load_time >= reload_interval) {
             if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
@@ -1582,14 +1588,19 @@ reload:
         } else if (v->last_seq_no == v->cur_seq_no) {
             v->m3u8_hold_counters++;
             if (v->m3u8_hold_counters >= c->m3u8_hold_counters) {
+            av_log(v->parent, AV_LOG_INFO, "m3u8 holder count hit max hold counters %d ('%s')\n",
+                   v->m3u8_hold_counters, v->url);
                 return AVERROR_EOF;
             }
         } else {
             av_log(v->parent, AV_LOG_WARNING, "The m3u8 list sequence may have been wrapped.\n");
         }
         if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
-            if (v->finished)
+            if (v->finished) {
+                av_log(v->parent, AV_LOG_INFO, "Current sequence hit number of segments %d ('%s')\n",
+                    v->cur_seq_no, v->url);
                 return AVERROR_EOF;
+            }
             while (av_gettime_relative() - v->last_load_time < reload_interval) {
                 if (ff_check_interrupt(c->interrupt_callback))
                     return AVERROR_EXIT;
@@ -2353,9 +2364,12 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     recheck_discard_flags(s, c->first_packet);
     c->first_packet = 0;
-
+    int finished = 0;
     for (i = 0; i < c->n_playlists; i++) {
         struct playlist *pls = c->playlists[i];
+        if (pls->finished) {
+            finished += 1;
+        }
         /* Make sure we've got one buffered packet from each open playlist
          * stream */
         if (pls->needed && !pls->pkt->data) {
@@ -2488,7 +2502,12 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 
         return 0;
     }
-    return AVERROR_EOF;
+    if (finished) {
+        av_log(s, AV_LOG_INFO, "Playlist finished processing\n");
+        return AVERROR_EOF;
+    }
+    av_log(s, AV_LOG_INFO, "No streams? %d\n", c->n_playlists);
+    return 0;
 }
 
 static int hls_read_seek(AVFormatContext *s, int stream_index,
