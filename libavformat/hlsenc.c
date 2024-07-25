@@ -2772,6 +2772,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         //av_log(s, AV_LOG_WARNING, "time stamp %d\n", timestamp);
         //av_rescale_q(pkt->pts, AV_TIME_BASE_Q, (AVRational){1, 1000});
         int64_t timestamp = av_rescale_q(pkt->pts, st->time_base, AV_TIME_BASE_Q);
+        //int64_t timestamp = (pkt->pts) * av_q2d(st->time_base);
                 av_log(s, AV_LOG_WARNING, "timestamp %d pts %d time_base %d start_time %d.\n", timestamp, pkt->pts, st->time_base, st->start_time);
         if (hls->flags & HLS_SINGLE_FILE) {
             vs->start_pos += vs->size;
@@ -3262,7 +3263,7 @@ static const AVOption options[] = {
     {"hls_segment_filename", "filename template for segment files", OFFSET(segment_filename),   AV_OPT_TYPE_STRING, {.str = NULL},            0,       0,         E},
     {"hls_segment_options","set segments files format options of hls", OFFSET(format_options), AV_OPT_TYPE_DICT, {.str = NULL},  0, 0,    E},
     {"hls_segment_size", "maximum size per segment file, (in bytes)",  OFFSET(max_seg_size),    AV_OPT_TYPE_INT,    {.i64 = 0},               0,       INT_MAX,   E},
-    {"hls_segment_timestamp_dur", "split the hls segment by timestamp", OFFSET(timestamp_dur), AV_OPT_TYPE_INT64,  {.i64 = 0},     0, INT64_MAX, E},
+    {"hls_segment_timestamp_dur", "split the hls segment by timestamp (seconds)", OFFSET(timestamp_dur), AV_OPT_TYPE_INT64,  {.i64 = 0},     0, INT64_MAX, E},
     {"hls_key_info_file",    "file with key URI and key file path", OFFSET(key_info_file),      AV_OPT_TYPE_STRING, {.str = NULL},            0,       0,         E},
     {"hls_enc",    "enable AES128 encryption support", OFFSET(encrypt),      AV_OPT_TYPE_BOOL, {.i64 = 0},            0,       1,         E},
     {"hls_enc_key",    "hex-coded 16 byte key to encrypt the segments", OFFSET(key),      AV_OPT_TYPE_STRING, .flags = E},

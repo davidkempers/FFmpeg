@@ -410,7 +410,6 @@ int enc_open(void *opaque, const AVFrame *frame)
 static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
 {
     
-    const AVCodec *encoder;
 
 
     AVCodecContext *enc_ctx;// = ost->enc_ctx;
@@ -420,24 +419,28 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
     int ret;
 
        
-        encoder = avcodec_find_encoder(id);
+        enc = avcodec_find_encoder(id);
 
-    if (!encoder) {
+    if (!enc) {
         av_log(NULL, AV_LOG_FATAL, "Necessary encoder not found\n");
         return AVERROR_INVALIDDATA;
     }
-    enc_ctx = avcodec_alloc_context3(encoder);
+            av_log(ost, AV_LOG_INFO, "found encoder\n");
+    enc_ctx = avcodec_alloc_context3(enc);
     if (!enc_ctx) {
         av_log(NULL, AV_LOG_FATAL, "Failed to allocate the encoder context\n");
         return AVERROR(ENOMEM);
     }
-    enc = enc_ctx->codec;
+            av_log(ost, AV_LOG_INFO, "assign\n");
+    ost->enc_ctx = enc_ctx;
 
+            av_log(ost, AV_LOG_INFO, "alloc codec ctx\n");
 
     // frame is always non-NULL for audio and video
     av_assert0(frame || (enc->type != AVMEDIA_TYPE_VIDEO && enc->type != AVMEDIA_TYPE_AUDIO));
 
-    /*if (frame) {
+            av_log(ost, AV_LOG_INFO, "asserted\n");
+    if (frame) {
         av_assert0(frame->opaque_ref);
         fd = (FrameData*)frame->opaque_ref->data;
 
@@ -455,7 +458,7 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
             if (ret < 0)
                 return ret;
         }
-    }*/
+    }
 
 
 
@@ -466,11 +469,14 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
         ost->st->avg_frame_rate = fd->frame_rate_filter;
     }
 
+            av_log(ost, AV_LOG_INFO, "switching\n");
     switch (enc_ctx->codec_type) {
     case AVMEDIA_TYPE_VIDEO: {
         av_assert0(frame->format != AV_PIX_FMT_NONE &&
                    frame->width > 0 &&
                    frame->height > 0);
+
+            av_log(ost, AV_LOG_INFO, "asserted\n");
         enc_ctx->width  = frame->width;
         enc_ctx->height = frame->height;
         enc_ctx->sample_aspect_ratio = ost->st->sample_aspect_ratio =
@@ -515,6 +521,7 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
         break;
         }
     default:
+            av_log(ost, AV_LOG_INFO, "break\n");
         av_assert0(0);
         break;
     }
@@ -528,6 +535,7 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
     enc_ctx->flags |= AV_CODEC_FLAG_FRAME_DURATION;
 
 
+            av_log(ost, AV_LOG_INFO, "start open codec\n");
     if ((ret = avcodec_open2(ost->enc_ctx, enc, NULL)) < 0) {
         if (ret != AVERROR_EXPERIMENTAL)
             av_log(ost, AV_LOG_ERROR, "Error while opening encoder - maybe "
@@ -535,6 +543,7 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
         return ret;
     }
 
+            av_log(ost, AV_LOG_INFO, "opened codecn");
     if (ost->enc_ctx->frame_size)
         frame_samples = ost->enc_ctx->frame_size;
 
@@ -551,7 +560,7 @@ static int enc_open2(OutputStream *ost, const AVFrame *frame, enum AVCodecID id)
         return ret;
     }
 
-    ost->enc_ctx = enc_ctx;
+            av_log(ost, AV_LOG_INFO, "done\n");
     return frame_samples;
 }
 
@@ -1098,17 +1107,17 @@ int encoder_thread(void *arg)
         if (ost->type == AVMEDIA_TYPE_VIDEO && et.frame->flags & AV_FRAME_FLAG_KEY)  {  
             int64_t pts_time = (et.frame->pts) * av_q2d(et.frame->time_base);
             int64_t pts_sync = (pts_time) % 60; // 60 seconds
-            av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %d kf %d \n", pts_sync, pts_time, et.frame->flags & AV_FRAME_FLAG_KEY);
             if (pts_sync < 1 && started && last_pts_time < pts_time - 10) {
                 last_pts_time = pts_time;
+            av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %d kf %d \n", pts_sync, pts_time, et.frame->flags & AV_FRAME_FLAG_KEY);
                 
             av_log(NULL, AV_LOG_INFO, "restarting: %d packet_time: %d\n", pts_sync, pts_time);
 
                 enum AVCodecID id = ost->enc_ctx->codec->id;
-                //ret = frame_encode(ost, NULL, et.pkt);
-                //if (ret < 0 && ret != AVERROR_EOF)
-                //    av_log(ost, AV_LOG_ERROR, "Error flushing encoder: %s\n",
-                //        av_err2str(ret));
+                ret = frame_encode(ost, NULL, et.pkt);
+                if (ret < 0 && ret != AVERROR_EOF)
+                    av_log(ost, AV_LOG_ERROR, "Error flushing encoder: %s\n",
+                        av_err2str(ret));
 
                 
                 if (ost->enc_ctx)
