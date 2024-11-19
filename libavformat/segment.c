@@ -201,8 +201,14 @@ static int set_segment_filename(AVFormatContext *s)
         struct tm *tm, tmpbuf;
         time(&now0);
         tm = localtime_r(&now0, &tmpbuf);
-        if (!strftime(buf, sizeof(buf), s->url, tm)) {
+        char buf2[1024];
+        if (!strftime(buf, sizeof(buf2), s->url, tm)) {
             av_log(oc, AV_LOG_ERROR, "Could not get segment filename with strftime\n");
+            return AVERROR(EINVAL);
+        }
+        if (av_get_frame_filename(buf, sizeof(buf),
+                                     buf2, seg->segment_idx) < 0) {
+            av_log(oc, AV_LOG_ERROR, "Invalid segment filename template '%s'\n", s->url);
             return AVERROR(EINVAL);
         }
     } else if (av_get_frame_filename(buf, sizeof(buf),

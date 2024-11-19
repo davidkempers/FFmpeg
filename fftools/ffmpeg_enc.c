@@ -1106,7 +1106,8 @@ int encoder_thread(void *arg)
 
         if (ost->type == AVMEDIA_TYPE_VIDEO && et.frame->flags & AV_FRAME_FLAG_KEY)  {  
             int64_t pts_time = (et.frame->pts) * av_q2d(et.frame->time_base);
-            int64_t pts_sync = (pts_time) % 60; // 60 seconds
+            int seconds= 3600;
+            int64_t pts_sync = (pts_time) % seconds;
             if (pts_sync < 1 && started && last_pts_time < pts_time - 10) {
                 last_pts_time = pts_time;
             av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %d kf %d \n", pts_sync, pts_time, et.frame->flags & AV_FRAME_FLAG_KEY);

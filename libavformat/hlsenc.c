@@ -177,6 +177,9 @@ typedef struct VariantStream {
     char key_uri[LINE_BUFFER_SIZE + 1];
     char key_string[KEYSIZE*2 + 1];
     char iv_string[KEYSIZE*2 + 1];
+    char init_key_string[KEYSIZE*2 + 1];
+    char init_key_uri[LINE_BUFFER_SIZE + 1];
+    char init_iv_string[KEYSIZE*2 + 1];
 
     AVStream **streams;
     char codec_attr[128];
@@ -961,6 +964,39 @@ static int hls_mux_init(AVFormatContext *s, VariantStream *vs)
         if (byterange_mode) {
             ret = hlsenc_io_open(s, &vs->out, vs->basename, &options);
         } else {
+            // Encrypt the init file. This gets called more than once? Check if we already written
+            if ((hls->key_info_file || hls->encrypt) && !vs->encrypt_started) {
+                if (hls->key_info_file) {
+                    ret = hls_encryption_start(s, vs);
+                } else {
+                    if (!hls->encrypt_started) {
+                        if ((ret = do_encrypt(s, vs)) == 0) {
+                            hls->encrypt_started = 1;
+                            av_strlcpy(vs->key_uri, hls->key_uri, sizeof(vs->key_uri));
+                            av_strlcpy(vs->key_string, hls->key_string, sizeof(vs->key_string));
+                            av_strlcpy(vs->iv_string, hls->iv_string, sizeof(vs->iv_string));
+                        }
+                    }
+                }
+                if (!vs->encrypt_started) {
+                    av_strlcpy(vs->init_key_uri, vs->key_uri, sizeof(vs->init_key_uri));
+                    av_strlcpy(vs->init_key_string, vs->key_string, sizeof(vs->init_key_string));
+                    av_strlcpy(vs->init_iv_string, vs->iv_string, sizeof(vs->init_iv_string));
+                }
+                if (ret < 0) {
+                    av_log(s, AV_LOG_ERROR, "Failed to open encryption for segment '%s'\n", vs->fmp4_init_filename);
+                    return ret;
+                }
+                vs->encrypt_started = 1;
+
+                av_dict_set(&options, "encryption_key", vs->key_string, 0);
+                av_dict_set(&options, "encryption_iv", vs->iv_string, 0);
+                char *filename = NULL;
+                filename = av_asprintf("crypto:%s", vs->base_output_dirname);
+                av_free(vs->base_output_dirname);
+                vs->base_output_dirname = filename;
+
+            }
             ret = hlsenc_io_open(s, &vs->out, vs->base_output_dirname, &options);
         }
         av_dict_free(&options);
@@ -1694,8 +1730,26 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
         avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-INDEPENDENT-SEGMENTS\n");
     }
     for (en = vs->segments; en; en = en->next) {
-        if ((hls->encrypt || hls->key_info_file) && (!key_uri || strcmp(en->key_uri, key_uri) ||
+
+
+        if ((hls->segment_type == SEGMENT_TYPE_FMP4) && (en == vs->segments)) {
+            
+            if ((hls->encrypt || hls->key_info_file) ) {
+                                        
+                avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-KEY:METHOD=AES-128,URI=\"%s\"", vs->init_key_uri);
+                if (*vs->init_iv_string)
+                    avio_printf(byterange_mode ? hls->m3u8_out : vs->out, ",IV=0x%s", vs->init_iv_string);
+                avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "\n");
+                key_uri = vs->init_key_uri;
+                iv_string = vs->init_iv_string;
+            }
+
+            ff_hls_write_init_file(byterange_mode ? hls->m3u8_out : vs->out, (hls->flags & HLS_SINGLE_FILE) ? en->filename : vs->fmp4_init_filename,
+                                   hls->flags & HLS_SINGLE_FILE, vs->init_range_length, 0);
+        } else {
+            if ((hls->encrypt || hls->key_info_file) && (!key_uri || strcmp(en->key_uri, key_uri) ||
                                     av_strcasecmp(en->iv_string, iv_string))) {
+                                        
             avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-KEY:METHOD=AES-128,URI=\"%s\"", en->key_uri);
             if (*en->iv_string)
                 avio_printf(byterange_mode ? hls->m3u8_out : vs->out, ",IV=0x%s", en->iv_string);
@@ -1703,10 +1757,6 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
             key_uri = en->key_uri;
             iv_string = en->iv_string;
         }
-
-        if ((hls->segment_type == SEGMENT_TYPE_FMP4) && (en == vs->segments)) {
-            ff_hls_write_init_file(byterange_mode ? hls->m3u8_out : vs->out, (hls->flags & HLS_SINGLE_FILE) ? en->filename : vs->fmp4_init_filename,
-                                   hls->flags & HLS_SINGLE_FILE, vs->init_range_length, 0);
         }
 
         ret = ff_hls_write_file_entry(byterange_mode ? hls->m3u8_out : vs->out, en->discont, byterange_mode,
@@ -1881,10 +1931,10 @@ static int hls_start(AVFormatContext *s, VariantStream *vs, int64_t timestamp)
     }
 
     if (c->key_info_file || c->encrypt) {
-        if (c->segment_type == SEGMENT_TYPE_FMP4) {
-            av_log(s, AV_LOG_ERROR, "Encrypted fmp4 not yet supported\n");
-            return AVERROR_PATCHWELCOME;
-        }
+        //if (c->segment_type == SEGMENT_TYPE_FMP4) {
+        //    av_log(s, AV_LOG_ERROR, "Encrypted fmp4 not yet supported\n");
+        //    return AVERROR_PATCHWELCOME;
+        //}
 
         if (c->key_info_file && c->encrypt) {
             av_log(s, AV_LOG_WARNING, "Cannot use both -hls_key_info_file and -hls_enc,"
@@ -1904,6 +1954,12 @@ static int hls_start(AVFormatContext *s, VariantStream *vs, int64_t timestamp)
                 av_strlcpy(vs->key_uri, c->key_uri, sizeof(vs->key_uri));
                 av_strlcpy(vs->key_string, c->key_string, sizeof(vs->key_string));
                 av_strlcpy(vs->iv_string, c->iv_string, sizeof(vs->iv_string));
+            }
+            if (!vs->encrypt_started) {
+                // only set init keys once
+                av_strlcpy(vs->init_key_uri, vs->key_uri, sizeof(vs->key_uri));
+                av_strlcpy(vs->init_key_string, vs->key_string, sizeof(vs->key_string));
+                av_strlcpy(vs->init_iv_string, vs->iv_string, sizeof(vs->iv_string));
             }
             vs->encrypt_started = 1;
         }
@@ -3189,6 +3245,7 @@ static int hls_init(AVFormatContext *s)
                 } else {
                     vs->base_output_dirname = av_strdup(vs->fmp4_init_filename);
                 }
+                
                 if (!vs->base_output_dirname)
                     return AVERROR(ENOMEM);
             }

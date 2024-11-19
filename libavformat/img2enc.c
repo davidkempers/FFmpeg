@@ -28,6 +28,7 @@
 #include "libavutil/avstring.h"
 #include "libavutil/dict.h"
 #include "libavutil/log.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/time_internal.h"
@@ -150,6 +151,34 @@ static int write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (img->update) {
         av_strlcpy(filename, s->url, sizeof(filename));
+    } else if (img->frame_pts && img->use_strftime) {
+            char tmp[1024];
+            time_t now0;
+            struct tm *tm, tmpbuf;
+            time(&now0);
+            tm = localtime_r(&now0, &tmpbuf);
+            if (!strftime(tmp, sizeof(tmp), s->url, tm)) {
+                av_log(s, AV_LOG_ERROR, "Could not get frame filename with strftime\n");
+                return AVERROR(EINVAL);
+            }
+            int64_t timestamp = av_rescale_q(pkt->pts, s->streams[pkt->stream_index]->time_base, AV_TIME_BASE_Q);
+            av_log(s, AV_LOG_ERROR, "pts %d timetsmap %d timebase %d %s\n", pkt->pts, timestamp,  s->streams[pkt->stream_index]->time_base, tmp);
+            if (av_get_frame_filename2(filename, sizeof(filename), tmp, timestamp, AV_FRAME_FILENAME_FLAGS_MULTIPLE) < 0) {
+                av_log(s, AV_LOG_ERROR, "Cannot write filename by pts of the frames. %s", filename);
+                return AVERROR(EINVAL);
+            }
+            const char *dir;
+            char *fn_copy = av_strdup(filename);
+            if (!fn_copy)
+                return AVERROR(ENOMEM);
+            dir = av_dirname(fn_copy);
+            if (ff_mkdir_p(dir) == -1 && errno != EEXIST) {
+                av_log(s, AV_LOG_ERROR, "Could not create directory %s with use_localtime_mkdir\n", dir);
+                av_freep(&fn_copy);
+                return AVERROR(errno);
+            }
+            av_freep(&fn_copy);
+        
     } else if (img->use_strftime) {
         time_t now0;
         struct tm *tm, tmpbuf;
