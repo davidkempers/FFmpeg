@@ -2578,6 +2578,8 @@ static int64_t append_single_file(AVFormatContext *s, VariantStream *vs)
 
     return ret;
 }
+
+static int64_t last_pts_time = 0;
 static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
     HLSContext *hls = s->priv_data;
@@ -2643,11 +2645,18 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (vs->has_video) {
 
-        if (hls->timestamp_dur) {            
-            int64_t time = (double)pkt->pts * av_q2d(st->time_base);
-        av_log(s, AV_LOG_WARNING, "time to cut %d %d\n", time, time % hls->timestamp_dur);
-            if (time % hls->timestamp_dur == 0  && pkt->flags & AV_PKT_FLAG_KEY) {
+        // TODO: using this as a sync. should change name
+        if (hls->timestamp_dur && last_pts_time == 0) {    
+            can_split = 0;
+            int64_t timestamp = av_rescale_q(pkt->pts, st->time_base, AV_TIME_BASE_Q) /1000000;;
+            if (last_pts_time == 0)
+                last_pts_time = timestamp;        
+        //int64_t time = (double)pkt->pts * av_q2d(st->time_base);
+                av_log(s, AV_LOG_WARNING, "last_pts_time %d st->time_base %f %d mod: %d\n", 1/timestamp, st->time_base, timestamp -last_pts_time, timestamp % hls->timestamp_dur);
+            if (timestamp % hls->timestamp_dur == 0  && pkt->flags & AV_PKT_FLAG_KEY && timestamp -last_pts_time > 10) {
+                av_log(s, AV_LOG_WARNING, "time to cut %d %d\n", timestamp, timestamp % hls->timestamp_dur);
                 can_split = 1;
+                last_pts_time = timestamp;  
             }
         } else {
             can_split = st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
@@ -2829,7 +2838,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         //av_rescale_q(pkt->pts, AV_TIME_BASE_Q, (AVRational){1, 1000});
         int64_t timestamp = av_rescale_q(pkt->pts, st->time_base, AV_TIME_BASE_Q);
         //int64_t timestamp = (pkt->pts) * av_q2d(st->time_base);
-                av_log(s, AV_LOG_WARNING, "timestamp %d pts %d time_base %d start_time %d.\n", timestamp, pkt->pts, st->time_base, st->start_time);
+                av_log(s, AV_LOG_WARNING, "timestamp %lld pts %d time_base %d start_time %d.\n", timestamp, pkt->pts, st->time_base, st->start_time);
         if (hls->flags & HLS_SINGLE_FILE) {
             vs->start_pos += vs->size;
             if (hls->key_info_file || hls->encrypt)

@@ -192,6 +192,7 @@ static int set_segment_filename(AVFormatContext *s)
     size_t size;
     int ret;
     char buf[1024];
+    char entry_prefix[1024];
     char *new_name;
 
     if (seg->segment_idx_wrap)
@@ -201,16 +202,20 @@ static int set_segment_filename(AVFormatContext *s)
         struct tm *tm, tmpbuf;
         time(&now0);
         tm = localtime_r(&now0, &tmpbuf);
-        char buf2[1024];
-        if (!strftime(buf, sizeof(buf2), s->url, tm)) {
+        //char buf2[1024];
+        if (!strftime(buf, sizeof(buf), s->url, tm)) {
             av_log(oc, AV_LOG_ERROR, "Could not get segment filename with strftime\n");
             return AVERROR(EINVAL);
         }
-        if (av_get_frame_filename(buf, sizeof(buf),
+        if (seg->entry_prefix && !strftime(entry_prefix, sizeof(entry_prefix), seg->entry_prefix, tm)) {
+            av_log(oc, AV_LOG_ERROR, "Could not get segment prefix with strftime\n");
+            return AVERROR(EINVAL);
+        }
+        /*if (av_get_frame_filename(buf, sizeof(buf),
                                      buf2, seg->segment_idx) < 0) {
             av_log(oc, AV_LOG_ERROR, "Invalid segment filename template '%s'\n", s->url);
             return AVERROR(EINVAL);
-        }
+        }*/
     } else if (av_get_frame_filename(buf, sizeof(buf),
                                      s->url, seg->segment_idx) < 0) {
         av_log(oc, AV_LOG_ERROR, "Invalid segment filename template '%s'\n", s->url);
@@ -224,12 +229,12 @@ static int set_segment_filename(AVFormatContext *s)
     /* copy modified name in list entry */
     size = strlen(av_basename(oc->url)) + 1;
     if (seg->entry_prefix)
-        size += strlen(seg->entry_prefix);
+        size += strlen(entry_prefix);
 
     if ((ret = av_reallocp(&seg->cur_entry.filename, size)) < 0)
         return ret;
     snprintf(seg->cur_entry.filename, size, "%s%s",
-             seg->entry_prefix ? seg->entry_prefix : "",
+             seg->entry_prefix ? entry_prefix : "",
              av_basename(oc->url));
 
     return 0;
@@ -922,6 +927,7 @@ calc_times:
     if (pkt->pts != AV_NOPTS_VALUE)
         pkt_pts_avtb = av_rescale_q(pkt->pts, st->time_base, AV_TIME_BASE_Q);
 
+    av_log(s, AV_LOG_WARNING, "segment pts: %lld\n", pkt_pts_avtb);
     if (pkt->stream_index == seg->reference_stream_index &&
         (pkt->flags & AV_PKT_FLAG_KEY || seg->break_non_keyframes) &&
         (seg->segment_frame_count > 0 || seg->write_empty) &&

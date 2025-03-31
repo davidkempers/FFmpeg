@@ -161,7 +161,7 @@ static int write_packet(AVFormatContext *s, AVPacket *pkt)
                 av_log(s, AV_LOG_ERROR, "Could not get frame filename with strftime\n");
                 return AVERROR(EINVAL);
             }
-            int64_t timestamp = av_rescale_q(pkt->pts, s->streams[pkt->stream_index]->time_base, AV_TIME_BASE_Q);
+            int64_t timestamp = av_rescale_q(pkt->pts, s->streams[pkt->stream_index]->time_base, (AVRational){1, 1});
             av_log(s, AV_LOG_ERROR, "pts %d timetsmap %d timebase %d %s\n", pkt->pts, timestamp,  s->streams[pkt->stream_index]->time_base, tmp);
             if (av_get_frame_filename2(filename, sizeof(filename), tmp, timestamp, AV_FRAME_FILENAME_FLAGS_MULTIPLE) < 0) {
                 av_log(s, AV_LOG_ERROR, "Cannot write filename by pts of the frames. %s", filename);

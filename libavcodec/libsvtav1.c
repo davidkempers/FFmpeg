@@ -512,6 +512,7 @@ static av_cold int eb_enc_close(AVCodecContext *avctx)
 }
 
 static int started = 0;
+static int64_t last_pts_time = 0;
 
 static int eb_send_frame(AVCodecContext *avctx, const AVFrame *frame)
 {
@@ -522,34 +523,113 @@ static int eb_send_frame(AVCodecContext *avctx, const AVFrame *frame)
     EbErrorType svt_ret;
     int ret;
     
-    if (frame && 0) {
+    /*if (frame) {
         //double pts_time = (frame->pts - kf->ref_pts) * av_q2d(frame->time_base);
-        int64_t pts_time = av_rescale_q(frame->pts, frame->time_base, AV_TIME_BASE_Q);
-        int64_t pts_sync = (pts_time /100000) % 60; // 60 seconds
+        int64_t pts_time = av_rescale_q(frame->pts, frame->time_base, AV_TIME_BASE_Q) /1000000;
+        int64_t pts_sync = (pts_time ) % 60; // 60 seconds
         av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %u \n", pts_sync, pts_time);
         if (pts_sync < 1 && started) {
-            
-            /* flush encoder */
+            headerPtr->pic_type = EB_AV1_KEY_PICTURE;
+            // flush encoder 
             EbBufferHeaderType headerPtrLast;
 
-            if (svt_enc->eos_flag == EOS_SENT)
+            if (svt_enc->eos_flag == EOS_SENT) {
+                av_log(NULL, AV_LOG_INFO, "End flag set\n");
                 return 0;
-
+            }
             memset(&headerPtrLast, 0, sizeof(headerPtrLast));
             headerPtrLast.pic_type      = EB_AV1_INVALID_PICTURE;
             headerPtrLast.flags         = EB_BUFFERFLAG_EOS;
 
             svt_av1_enc_send_picture(svt_enc->svt_handle, &headerPtrLast);
-           // svt_enc->eos_flag = EOS_SENT;
+            //svt_enc->eos_flag = EOS_SENT;
 
         av_log(NULL, AV_LOG_INFO, "flushed encoder \n");
-            ret = eb_enc_close(avctx);
+            
+
+    if (svt_enc->svt_handle) {
+        svt_av1_enc_deinit(svt_enc->svt_handle);
+        svt_av1_enc_deinit_handle(svt_enc->svt_handle);
+    }
+    /*if (svt_enc->in_buf) {
+        av_free(svt_enc->in_buf->p_buffer);
+        svt_metadata_array_free(&svt_enc->in_buf->metadata);
+        av_freep(&svt_enc->in_buf);
+    }*/
+
+    /*av_buffer_pool_uninit(&svt_enc->pool);
+    av_frame_free(&svt_enc->frame);
+    ff_dovi_ctx_unref(&svt_enc->dovi);* /
+
         av_log(NULL, AV_LOG_INFO, "closed encoder \n");
-            ret = eb_enc_init(avctx);
+
+        EbErrorType svt_ret;
+    int ret;
+
+    svt_enc->eos_flag = EOS_NOT_REACHED;
+
+    svt_ret = svt_av1_enc_init_handle(&svt_enc->svt_handle, svt_enc, &svt_enc->enc_params);
+    if (svt_ret != EB_ErrorNone) {
+        return svt_print_error(avctx, svt_ret, "Error initializing encoder handle");
+    }
+
+    ret = config_enc_params(&svt_enc->enc_params, avctx);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_ERROR, "Error configuring encoder parameters\n");
+        return ret;
+    }
+
+    svt_ret = svt_av1_enc_set_parameter(svt_enc->svt_handle, &svt_enc->enc_params);
+    if (svt_ret != EB_ErrorNone) {
+        return svt_print_error(avctx, svt_ret, "Error setting encoder parameters");
+    }
+
+    svt_ret = svt_av1_enc_init(svt_enc->svt_handle);
+    if (svt_ret != EB_ErrorNone) {
+        return svt_print_error(avctx, svt_ret, "Error initializing encoder");
+    }
+
+    svt_enc->dovi.logctx = avctx;
+    ret = ff_dovi_configure(&svt_enc->dovi, avctx);
+    if (ret < 0)
+        return ret;
+
+    if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER) {
+        EbBufferHeaderType *headerPtr = NULL;
+
+        svt_ret = svt_av1_enc_stream_header(svt_enc->svt_handle, &headerPtr);
+        if (svt_ret != EB_ErrorNone) {
+            return svt_print_error(avctx, svt_ret, "Error building stream header");
+        }
+
+        avctx->extradata_size = headerPtr->n_filled_len;
+        avctx->extradata = av_mallocz(avctx->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
+        if (!avctx->extradata) {
+            av_log(avctx, AV_LOG_ERROR,
+                   "Cannot allocate AV1 header of size %d.\n", avctx->extradata_size);
+            return AVERROR(ENOMEM);
+        }
+
+        memcpy(avctx->extradata, headerPtr->p_buffer, avctx->extradata_size);
+
+        svt_ret = svt_av1_enc_stream_header_release(headerPtr);
+        if (svt_ret != EB_ErrorNone) {
+            return svt_print_error(avctx, svt_ret, "Error freeing stream header");
+        }
+    }
+
+    svt_enc->frame = av_frame_alloc();
+    if (!svt_enc->frame)
+        return AVERROR(ENOMEM);
+
+    alloc_buffer(&svt_enc->enc_params, svt_enc);
+
+
+          //  ret = eb_enc_init(avctx);
         av_log(NULL, AV_LOG_INFO, "opened encoder \n");
         }
         started = 1;
-    }
+    }*/
 
     if (!frame) {
         EbBufferHeaderType headerPtrLast;
@@ -586,6 +666,20 @@ static int eb_send_frame(AVCodecContext *avctx, const AVFrame *frame)
 
     if (avctx->gop_size == 1)
         headerPtr->pic_type = EB_AV1_KEY_PICTURE;
+
+    int64_t pts_time = av_rescale_q(frame->pts, frame->time_base, AV_TIME_BASE_Q) /1000000;
+    int64_t pts_sync = (pts_time ) % 60; // 60 seconds
+    //av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %u \n", pts_sync, pts_time);
+    //av_log(NULL, AV_LOG_INFO, "packet pts_sync: %d packet_time: %u \n", pts_sync, pts_time-last_pts_time);
+    if (!last_pts_time)
+        last_pts_time = pts_time;
+    if (pts_sync < 1 && pts_time - last_pts_time >= 10) { // 10 seconds
+            av_log(NULL, AV_LOG_INFO, "packet keyframe insert pts_sync: %d packet_time: %u \n", pts_sync, pts_time-last_pts_time);
+            //headerPtr->pic_type = EB_AV1_KEY_PICTURE;            
+        
+        last_pts_time = pts_time;
+    }
+    started = 1;
 
     sd = av_frame_get_side_data(frame, AV_FRAME_DATA_DOVI_METADATA);
     if (svt_enc->dovi.cfg.dv_profile && sd) {
